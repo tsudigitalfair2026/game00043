@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ペンギンよけゲームDX</title>
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+-webkit-tap-highlight-color:transparent;
+}
+html,body{
+width:100%;
+height:100%;
+overflow:hidden;
+touch-action:none;
+font-family:sans-serif;
+background:#87ceeb;
+}
+.screen{
+display:none;
+width:100%;
+height:100%;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+padding:20px;
+text-align:center;
+}
+.active{
+display:flex;
+}
+h1{
+margin-bottom:16px;
+}
+p{
+line-height:1.7;
+max-width:500px;
+}
+button{
+margin-top:20px;
+min-width:200px;
+min-height:60px;
+font-size:22px;
+border:none;
+border-radius:14px;
+background:#0078ff;
+color:#fff;
+cursor:pointer;
+}
+#gameScreen{
+padding:0;
+justify-content:flex-start;
+}
+#hud{
+width:100%;
+display:flex;
+justify-content:space-between;
+padding:12px;
+background:rgba(255,255,255,.9);
+font-size:20px;
+font-weight:bold;
+z-index:20;
+}
+#gameArea{
+position:relative;
+width:100%;
+flex:1;
+overflow:hidden;
+background:linear-gradient(#93e8ff,#eefcff);
+touch-action:none;
+}
+#penguin{
+position:absolute;
+bottom:20px;
+font-size:52px;
+user-select:none;
+z-index:10;
+}
+.obstacle{
+position:absolute;
+font-size:42px;
+user-select:none;
+}
+#blizzard{
+position:absolute;
+inset:0;
+pointer-events:none;
+display:none;
+overflow:hidden;
+z-index:5;
+}
+.snow{
+position:absolute;
+color:white;
+font-size:18px;
+opacity:.9;
+animation:snowfall linear infinite;
+}
+@keyframes snowfall{
+from{
+transform:translate(0,-20px);
+}
+to{
+transform:translate(-40px,110vh);
+}
+}
+#stormNotice{
+position:absolute;
+top:50%;
+left:50%;
+transform:translate(-50%,-50%);
+background:rgba(0,0,0,.7);
+color:#fff;
+padding:16px 22px;
+border-radius:12px;
+font-size:24px;
+display:none;
+z-index:30;
+font-weight:bold;
+}
+.rank{
+font-size:34px;
+font-weight:bold;
+margin-top:10px;
+}
+</style>
+</head>
+<body>
+
+<div id="startScreen" class="screen active">
+<h1>🐧 ペンギンよけゲームDX</h1>
+<p>
+左右にスライドして障害物をよけよう！<br>
+60秒生き残ればゲームクリア！<br>
+途中で巨大な雪あらしステージが発生！<br>
+見えにくくなるので注意！
+</p>
+<button id="startBtn">スタート</button>
+</div>
+
+<div id="gameScreen" class="screen">
+<div id="hud">
+<div>スコア: <span id="score">0</span></div>
+<div>残り: <span id="time">60</span>秒</div>
+</div>
+
+<div id="gameArea">
+<div id="blizzard"></div>
+<div id="stormNotice">❄ 巨大な雪あらし発生！ ❄</div>
+<div id="penguin">🐧</div>
+</div>
+</div>
+
+<div id="resultScreen" class="screen">
+<h1>結果発表</h1>
+<div id="finalScore"></div>
+<div id="rank" class="rank"></div>
+<button id="retryBtn">もう一度遊ぶ</button>
+</div>
+
+<script>
+const startScreen=document.getElementById("startScreen");
+const gameScreen=document.getElementById("gameScreen");
+const resultScreen=document.getElementById("resultScreen");
+
+const gameArea=document.getElementById("gameArea");
+const penguin=document.getElementById("penguin");
+const blizzard=document.getElementById("blizzard");
+const stormNotice=document.getElementById("stormNotice");
+
+const scoreEl=document.getElementById("score");
+const timeEl=document.getElementById("time");
+const finalScore=document.getElementById("finalScore");
+const rankEl=document.getElementById("rank");
+
+let score=0;
+let timeLeft=60;
+let playerX=0;
+let gameRunning=false;
+let obstacles=[];
+let gameLoopId;
+let spawnTimer;
+let timerId;
+
+let stormActive=false;
+let stormStarted=false;
+
+function showScreen(screen){
+[startScreen,gameScreen,resultScreen].forEach(s=>{
+s.classList.remove("active");
+});
+screen.classList.add("active");
+}
+
+function startGame(){
+
+score=0;
+timeLeft=60;
+stormActive=false;
+stormStarted=false;
+
+document.querySelectorAll(".obstacle").forEach(x=>x.remove());
+blizzard.innerHTML="";
+blizzard.style.display="none";
+
+scoreEl.textContent=0;
+timeEl.textContent=60;
+
+showScreen(gameScreen);
+
+requestAnimationFrame(()=>{
+playerX=(gameArea.clientWidth-52)/2;
+penguin.style.left=playerX+"px";
+});
+
+gameRunning=true;
+
+spawnTimer=setInterval(createObstacle,800);
+
+timerId=setInterval(()=>{
+timeLeft--;
+timeEl.textContent=timeLeft;
+
+if(timeLeft===40 && !stormStarted){
+startBlizzard();
+}
+
+if(timeLeft<=0){
+endGame(true);
+}
+},1000);
+
+gameLoop();
+}
+
+function startBlizzard(){
+
+stormStarted=true;
+stormActive=true;
+
+stormNotice.style.display="block";
+setTimeout(()=>{
+stormNotice.style.display="none";
+},2000);
+
+blizzard.style.display="block";
+
+for(let i=0;i<80;i++){
+
+const s=document.createElement("div");
+s.className="snow";
+s.textContent="❄";
+
+s.style.left=Math.random()*100+"%";
+s.style.top=Math.random()*100+"%";
+s.style.animationDuration=(2+Math.random()*3)+"s";
+
+blizzard.appendChild(s);
+}
+
+setTimeout(()=>{
+stormActive=false;
+blizzard.style.display="none";
+blizzard.innerHTML="";
+},10000);
+}
+
+function createObstacle(){
+
+if(!gameRunning)return;
+
+const obj=document.createElement("div");
+obj.className="obstacle";
+
+const chars=["🧊","🪨","🐟"];
+
+obj.textContent=chars[Math.floor(Math.random()*chars.length)];
+
+let speed=4+Math.random()*2;
+
+if(stormActive){
+speed+=2;
+}
+
+const size=42;
+const x=Math.random()*(gameArea.clientWidth-size);
+
+obj.style.left=x+"px";
+obj.style.top="-50px";
+
+gameArea.appendChild(obj);
+
+obstacles.push({
+el:obj,
+x:x,
+y:-50,
+size:size,
+speed:speed
+});
+}
+
+function gameLoop(){
+
+if(!gameRunning)return;
+
+const playerRect={
+x:playerX,
+y:gameArea.clientHeight-80,
+w:48,
+h:48
+};
+
+for(let i=obstacles.length-1;i>=0;i--){
+
+const o=obstacles[i];
+
+o.y+=o.speed;
+
+o.el.style.top=o.y+"px";
+
+const hit=
+o.x < playerRect.x+playerRect.w &&
+o.x+o.size > playerRect.x &&
+o.y < playerRect.y+playerRect.h &&
+o.y+o.size > playerRect.y;
+
+if(hit){
+endGame(false);
+return;
+}
+
+if(o.y>gameArea.clientHeight){
+
+o.el.remove();
+obstacles.splice(i,1);
+
+score++;
+
+if(stormActive){
+score++;
+}
+
+scoreEl.textContent=score;
+}
+}
+
+gameLoopId=requestAnimationFrame(gameLoop);
+}
+
+function endGame(clear){
+
+gameRunning=false;
+
+clearInterval(spawnTimer);
+clearInterval(timerId);
+cancelAnimationFrame(gameLoopId);
+
+let rank="C";
+
+if(score>=25) rank="B";
+if(score>=50) rank="A";
+if(score>=80) rank="S";
+
+finalScore.textContent="最終スコア : "+score;
+
+if(clear){
+rankEl.textContent="🎉ゲームクリア！ ランク "+rank;
+}else{
+rankEl.textContent="💥ゲームオーバー！ ランク "+rank;
+}
+
+showScreen(resultScreen);
+}
+
+function movePlayer(clientX){
+
+const rect=gameArea.getBoundingClientRect();
+
+playerX=clientX-rect.left-24;
+
+if(playerX<0){
+playerX=0;
+}
+
+const max=gameArea.clientWidth-52;
+
+if(playerX>max){
+playerX=max;
+}
+
+penguin.style.left=playerX+"px";
+}
+
+gameArea.addEventListener("touchstart",e=>{
+if(!gameRunning)return;
+movePlayer(e.touches[0].clientX);
+},{passive:false});
+
+gameArea.addEventListener("touchmove",e=>{
+if(!gameRunning)return;
+e.preventDefault();
+movePlayer(e.touches[0].clientX);
+},{passive:false});
+
+gameArea.addEventListener("mousedown",e=>{
+
+if(!gameRunning)return;
+
+movePlayer(e.clientX);
+
+function drag(ev){
+movePlayer(ev.clientX);
+}
+
+function up(){
+window.removeEventListener("mousemove",drag);
+window.removeEventListener("mouseup",up);
+}
+
+window.addEventListener("mousemove",drag);
+window.addEventListener("mouseup",up);
+
+});
+
+document.getElementById("startBtn").addEventListener("click",startGame);
+document.getElementById("retryBtn").addEventListener("click",startGame);
+</script>
+
+</body>
+</html>
